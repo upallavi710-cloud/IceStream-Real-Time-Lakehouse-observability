@@ -1,0 +1,8 @@
+
+fastapi
+uvicorn
+pandas
+numpy
+pydantic
+websockets
+great-expectations
