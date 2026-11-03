@@ -6,6 +6,8 @@ import pandas as pd
 from fastapi import FastAPI, HTTPException
 
 from member.monitoring.rules import validate_transactions
+from member.monitoring.metrics import calculate_quality_metrics
+from member.monitoring.anomaly import detect_amount_anomalies
 
 app = FastAPI(
     title="IceStream Monitoring API",
@@ -47,7 +49,6 @@ def data_quality_check(transactions: list[dict[str, Any]]):
 
         valid, invalid, report = validate_transactions(df)
 
-        # Convert Pandas NaN values into JSON-compatible null values
         valid_records = (
             valid.astype(object)
             .where(pd.notna(valid), None)
@@ -68,7 +69,34 @@ def data_quality_check(transactions: list[dict[str, Any]]):
         }
 
     except ValueError as error:
-        raise HTTPException(
-            status_code=400,
-            detail=str(error)
-        )
+        raise HTTPException(status_code=400, detail=str(error))
+
+
+@app.post("/monitoring/metrics")
+def data_quality_metrics(transactions: list[dict[str, Any]]):
+    try:
+        df = pd.DataFrame(transactions)
+        metrics = calculate_quality_metrics(df)
+
+        return {
+            "status": "success",
+            "metrics": metrics
+        }
+
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error))
+
+
+@app.post("/monitoring/anomalies")
+def transaction_anomalies(transactions: list[dict[str, Any]]):
+    try:
+        df = pd.DataFrame(transactions)
+        result = detect_amount_anomalies(df)
+
+        return {
+            "status": "success",
+            "anomaly_report": result
+        }
+
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error))
