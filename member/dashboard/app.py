@@ -7,11 +7,11 @@ API_URL = "http://127.0.0.1:8000"
 
 st.set_page_config(
     page_title="IceStream Monitoring",
-    page_icon="❄️",
+    page_icon="🌊",
     layout="wide"
 )
 
-st.title("❄️ IceStream Pipeline Monitoring Dashboard")
+st.title("🌊 IceStream Pipeline Monitoring Dashboard")
 st.caption("Real-Time Lakehouse Observability")
 
 st.sidebar.header("Dashboard Controls")
@@ -66,17 +66,14 @@ try:
         f"{API_URL}/health",
         timeout=5
     )
-
-    if health_response.status_code == 200:
-        st.success("Monitoring API is ONLINE")
-    else:
-        st.error("Monitoring API is not healthy")
+    health_response.raise_for_status()
+    st.success("Monitoring API is ONLINE")
 
 except requests.RequestException:
     st.error("FastAPI is OFFLINE. Start the API server first.")
     st.stop()
 
-# Custom transaction editor
+# Transaction input
 st.divider()
 st.header("Transaction Data Input")
 
@@ -89,7 +86,7 @@ edited_data = st.data_editor(
     key="transaction_editor"
 )
 
-# Analyze button
+# Complete transaction analysis
 if st.button("Analyze Transaction Data", type="primary"):
 
     transactions = edited_data.to_dict(orient="records")
@@ -99,40 +96,42 @@ if st.button("Analyze Transaction Data", type="primary"):
 
     else:
         try:
-            with st.spinner("Analyzing transaction data..."):
+            with st.spinner("Running complete transaction analysis..."):
 
+                # Run complete analysis and automatic incident detection
+                analysis_response = requests.post(
+                    f"{API_URL}/monitoring/analyze",
+                    json=transactions,
+                    timeout=30
+                )
+                analysis_response.raise_for_status()
+
+                # Get valid and invalid transaction details
                 quality_response = requests.post(
                     f"{API_URL}/monitoring/data-quality",
                     json=transactions,
-                    timeout=15
+                    timeout=30
                 )
-
-                metrics_response = requests.post(
-                    f"{API_URL}/monitoring/metrics",
-                    json=transactions,
-                    timeout=15
-                )
-
-                anomaly_response = requests.post(
-                    f"{API_URL}/monitoring/anomalies",
-                    json=transactions,
-                    timeout=15
-                )
-
                 quality_response.raise_for_status()
-                metrics_response.raise_for_status()
-                anomaly_response.raise_for_status()
 
-                st.session_state["quality"] = quality_response.json()
-                st.session_state["metrics"] = metrics_response.json()["metrics"]
-                st.session_state["anomalies"] = anomaly_response.json()["anomaly_report"]
+                analysis = analysis_response.json()
+                quality = quality_response.json()
 
-            st.success("Transaction analysis completed successfully!")
+                st.session_state["analysis"] = analysis
+                st.session_state["quality"] = quality
+                st.session_state["metrics"] = analysis["quality_metrics"]
+                st.session_state["anomalies"] = analysis["anomaly_report"]
+
+            st.success("Analysis completed and automatic incident detection executed!")
 
         except requests.RequestException as error:
             st.error(f"API request failed: {error}")
 
-# Display data quality results
+        except (KeyError, ValueError) as error:
+            st.error(f"Unexpected API response: {error}")
+
+
+# Data quality overview
 st.divider()
 st.header("Data Quality Overview")
 
@@ -170,6 +169,7 @@ if metrics:
         )
 
         st.subheader("Invalid Transactions")
+
         if quality["invalid_records"]:
             st.dataframe(
                 pd.DataFrame(quality["invalid_records"]),
@@ -178,11 +178,12 @@ if metrics:
         else:
             st.success("No invalid transactions found.")
 
-        st.write("Validation Report")
+        st.subheader("Validation Report")
         st.json(quality["report"])
 
 else:
     st.info("Enter transaction data and click Analyze Transaction Data.")
+
 
 # Anomaly detection
 st.divider()
@@ -209,6 +210,36 @@ if anomalies:
 
 else:
     st.info("Anomaly results will appear after analysis.")
+
+
+# Automatic incident detection results
+st.divider()
+st.header("Automatic Incident Detection")
+
+analysis = st.session_state.get("analysis")
+
+if analysis:
+
+    new_incidents = analysis.get("automatic_incidents", [])
+
+    st.metric(
+        "New Incidents Created",
+        analysis.get("total_new_incidents", 0)
+    )
+
+    if new_incidents:
+        st.warning("The system automatically detected issues and created incidents.")
+
+        st.dataframe(
+            pd.DataFrame(new_incidents),
+            use_container_width=True
+        )
+    else:
+        st.success("No new incidents were detected during this analysis.")
+
+else:
+    st.info("Automatic incident results will appear after analysis.")
+
 
 # Incident monitoring
 st.divider()
@@ -250,6 +281,7 @@ try:
 
 except requests.RequestException:
     st.warning("Incident information is unavailable.")
+
 
 st.divider()
 st.caption("IceStream | Real-Time Lakehouse Observability")
