@@ -9,10 +9,15 @@ from pydantic import BaseModel
 from member.monitoring.rules import validate_transactions
 from member.monitoring.metrics import calculate_quality_metrics
 from member.monitoring.anomaly import detect_amount_anomalies
+
 from member.monitoring.incidents import (
     log_incident,
     get_all_incidents,
     resolve_incident
+)
+
+from member.monitoring.auto_incidents import (
+    create_automatic_incidents
 )
 
 
@@ -23,14 +28,12 @@ app = FastAPI(
 )
 
 
-# Incident request model
 class IncidentRequest(BaseModel):
     incident_type: str
     severity: str
     description: str
 
 
-# Root endpoint
 @app.get("/")
 def home():
     return {
@@ -39,7 +42,6 @@ def home():
     }
 
 
-# Health check endpoint
 @app.get("/health")
 def health_check():
     return {
@@ -48,7 +50,6 @@ def health_check():
     }
 
 
-# Pipeline monitoring status
 @app.get("/monitoring/status")
 def monitoring_status():
     return {
@@ -59,7 +60,6 @@ def monitoring_status():
     }
 
 
-# Data quality validation endpoint
 @app.post("/monitoring/data-quality")
 def data_quality_check(transactions: list[dict[str, Any]]):
     try:
@@ -90,7 +90,6 @@ def data_quality_check(transactions: list[dict[str, Any]]):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# Data quality metrics endpoint
 @app.post("/monitoring/metrics")
 def quality_metrics(transactions: list[dict[str, Any]]):
     try:
@@ -107,7 +106,6 @@ def quality_metrics(transactions: list[dict[str, Any]]):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# Anomaly detection endpoint
 @app.post("/monitoring/anomalies")
 def anomaly_detection(transactions: list[dict[str, Any]]):
     try:
@@ -124,7 +122,51 @@ def anomaly_detection(transactions: list[dict[str, Any]]):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# Create a new incident
+@app.post("/monitoring/analyze")
+def analyze_transactions(transactions: list[dict[str, Any]]):
+    """
+    Run data quality validation and anomaly detection.
+    Automatically create incidents when problems are detected.
+    """
+
+    try:
+        df = pd.DataFrame(transactions)
+
+        # 1. Data quality validation
+        valid, invalid, quality_report = validate_transactions(df)
+
+        # 2. Calculate quality metrics
+        metrics = calculate_quality_metrics(df)
+
+        # 3. Detect anomalies
+        anomaly_report = detect_amount_anomalies(df)
+
+        # 4. Prepare reports for automatic incident detection
+        quality_data = {
+            "total_records": len(df),
+            "invalid_records": len(invalid)
+        }
+
+        # 5. Automatically create incidents
+        created_incidents = create_automatic_incidents(
+            quality_data,
+            anomaly_report
+        )
+
+        return {
+            "status": "success",
+            "message": "Transaction analysis completed",
+            "data_quality_report": quality_report,
+            "quality_metrics": metrics,
+            "anomaly_report": anomaly_report,
+            "automatic_incidents": created_incidents,
+            "total_new_incidents": len(created_incidents)
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/monitoring/incidents")
 def create_incident(request: IncidentRequest):
     try:
@@ -143,7 +185,6 @@ def create_incident(request: IncidentRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# Retrieve all incidents
 @app.get("/monitoring/incidents")
 def list_incidents():
     incidents = get_all_incidents()
@@ -155,7 +196,6 @@ def list_incidents():
     }
 
 
-# Resolve an incident
 @app.patch("/monitoring/incidents/{incident_id}/resolve")
 def resolve_incident_api(incident_id: int):
     incident = resolve_incident(incident_id)
