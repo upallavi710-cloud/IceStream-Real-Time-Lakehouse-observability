@@ -19,7 +19,11 @@ st.sidebar.header("Dashboard Controls")
 if st.sidebar.button("Refresh Dashboard"):
     st.rerun()
 
-# Sample transaction data
+
+# =====================================================
+# SAMPLE TRANSACTION DATA
+# =====================================================
+
 sample_data = pd.DataFrame([
     {
         "transaction_id": 101,
@@ -58,7 +62,11 @@ sample_data = pd.DataFrame([
     }
 ])
 
-# Check API health
+
+# =====================================================
+# API HEALTH CHECK
+# =====================================================
+
 st.header("Pipeline Health")
 
 try:
@@ -73,9 +81,13 @@ except requests.RequestException:
     st.error("FastAPI is OFFLINE. Start the API server first.")
     st.stop()
 
-# Transaction input
+
+# =====================================================
+# PART 1: TRANSACTION MONITORING
+# =====================================================
+
 st.divider()
-st.header("Transaction Data Input")
+st.header("📊 Part 1: Transaction Monitoring")
 
 st.write("Edit the sample transactions or add your own records.")
 
@@ -86,7 +98,7 @@ edited_data = st.data_editor(
     key="transaction_editor"
 )
 
-# Complete transaction analysis
+
 if st.button("Analyze Transaction Data", type="primary"):
 
     transactions = edited_data.to_dict(orient="records")
@@ -96,9 +108,8 @@ if st.button("Analyze Transaction Data", type="primary"):
 
     else:
         try:
-            with st.spinner("Running complete transaction analysis..."):
+            with st.spinner("Analyzing transaction data..."):
 
-                # Run complete analysis and automatic incident detection
                 analysis_response = requests.post(
                     f"{API_URL}/monitoring/analyze",
                     json=transactions,
@@ -106,7 +117,6 @@ if st.button("Analyze Transaction Data", type="primary"):
                 )
                 analysis_response.raise_for_status()
 
-                # Get valid and invalid transaction details
                 quality_response = requests.post(
                     f"{API_URL}/monitoring/data-quality",
                     json=transactions,
@@ -122,7 +132,7 @@ if st.button("Analyze Transaction Data", type="primary"):
                 st.session_state["metrics"] = analysis["quality_metrics"]
                 st.session_state["anomalies"] = analysis["anomaly_report"]
 
-            st.success("Analysis completed and automatic incident detection executed!")
+            st.success("Transaction analysis completed!")
 
         except requests.RequestException as error:
             st.error(f"API request failed: {error}")
@@ -131,9 +141,9 @@ if st.button("Analyze Transaction Data", type="primary"):
             st.error(f"Unexpected API response: {error}")
 
 
-# Data quality overview
-st.divider()
-st.header("Data Quality Overview")
+# Transaction data quality
+
+st.subheader("Transaction Data Quality")
 
 metrics = st.session_state.get("metrics")
 quality = st.session_state.get("quality")
@@ -158,7 +168,6 @@ if metrics:
         ]
     })
 
-    st.subheader("Data Quality Chart")
     st.bar_chart(chart_data.set_index("Record Type"))
 
     if quality:
@@ -178,16 +187,16 @@ if metrics:
         else:
             st.success("No invalid transactions found.")
 
-        st.subheader("Validation Report")
+        st.subheader("Transaction Validation Report")
         st.json(quality["report"])
 
 else:
-    st.info("Enter transaction data and click Analyze Transaction Data.")
+    st.info("Run transaction analysis to view the results.")
 
 
-# Anomaly detection
-st.divider()
-st.header("Anomaly Detection")
+# Transaction anomaly detection
+
+st.subheader("Transaction Anomaly Detection")
 
 anomalies = st.session_state.get("anomalies")
 
@@ -209,51 +218,243 @@ if anomalies:
         st.success("No anomalies detected.")
 
 else:
-    st.info("Anomaly results will appear after analysis.")
+    st.info("Transaction anomaly results will appear after analysis.")
 
 
-# Automatic incident detection results
-st.divider()
-st.header("Automatic Incident Detection")
+# Transaction automatic incidents
 
-analysis = st.session_state.get("analysis")
+st.subheader("Transaction Automatic Incident Detection")
 
-if analysis:
+transaction_analysis = st.session_state.get("analysis")
 
-    new_incidents = analysis.get("automatic_incidents", [])
+if transaction_analysis:
+
+    new_incidents = transaction_analysis.get(
+        "automatic_incidents", []
+    )
 
     st.metric(
-        "New Incidents Created",
-        analysis.get("total_new_incidents", 0)
+        "New Transaction Incidents",
+        transaction_analysis.get("total_new_incidents", 0)
     )
 
     if new_incidents:
-        st.warning("The system automatically detected issues and created incidents.")
-
         st.dataframe(
             pd.DataFrame(new_incidents),
             use_container_width=True
         )
     else:
-        st.success("No new incidents were detected during this analysis.")
+        st.success("No new transaction incidents.")
 
 else:
-    st.info("Automatic incident results will appear after analysis.")
+    st.info("Transaction incident results will appear after analysis.")
 
 
-# Incident monitoring
+# =====================================================
+# PART 2: REAL ICЕSTREAM EVENT MONITORING
+# =====================================================
+
 st.divider()
-st.header("Incident Monitoring")
+st.header("🌊 Part 2: Real-Time IceStream Event Monitoring")
+
+st.write(
+    "Analyze the actual IceStream event dataset stored in the project's data folder."
+)
+
+st.caption("Dataset: icestream_events_with_anomalies.csv")
+
+
+if st.button("Analyze IceStream Event Dataset", type="primary"):
+
+    try:
+        with st.spinner("Loading and analyzing 10,000 IceStream events..."):
+
+            event_response = requests.post(
+                f"{API_URL}/monitoring/events/analyze",
+                timeout=60
+            )
+
+            event_response.raise_for_status()
+
+            event_analysis = event_response.json()
+
+            st.session_state["event_analysis"] = event_analysis
+
+        st.success("IceStream event dataset analyzed successfully!")
+
+    except requests.RequestException as error:
+        st.error(f"Event analysis API request failed: {error}")
+
+    except (KeyError, ValueError) as error:
+        st.error(f"Unexpected event analysis response: {error}")
+
+
+# Display event analysis
+
+event_analysis = st.session_state.get("event_analysis")
+
+if event_analysis:
+
+    event_metrics = event_analysis.get("metrics", {})
+    validation = event_analysis.get("validation_report", {})
+    anomaly_report = event_analysis.get("anomaly_report", {})
+
+    st.subheader("Event Data Quality Overview")
+
+    col1, col2, col3, col4 = st.columns(4)
+
+    col1.metric(
+        "Total Events",
+        event_metrics.get("total_events", 0)
+    )
+
+    col2.metric(
+        "Valid Events",
+        event_metrics.get("valid_events", 0)
+    )
+
+    col3.metric(
+        "Invalid Events",
+        event_metrics.get("invalid_events", 0)
+    )
+
+    col4.metric(
+        "Data Quality",
+        f'{event_metrics.get("quality_percentage", 0)}%'
+    )
+
+    # Event quality chart
+
+    event_quality_chart = pd.DataFrame({
+        "Event Type": ["Valid Events", "Invalid Events"],
+        "Count": [
+            event_metrics.get("valid_events", 0),
+            event_metrics.get("invalid_events", 0)
+        ]
+    })
+
+    st.subheader("Event Quality Chart")
+
+    st.bar_chart(
+        event_quality_chart.set_index("Event Type")
+    )
+
+    # Validation report
+
+    st.subheader("Event Validation Report")
+
+    st.write("Total records:", validation.get("total_records", 0))
+    st.write("Valid records:", validation.get("valid_records", 0))
+    st.write("Invalid records:", validation.get("invalid_records", 0))
+
+    validation_errors = validation.get("errors", [])
+
+    if validation_errors:
+        st.warning("Data quality issues found:")
+
+        for error in validation_errors:
+            st.write(f"- {error}")
+
+    else:
+        st.success("No validation issues found.")
+
+    # Event anomaly detection
+
+    st.divider()
+    st.subheader("Event Anomaly Detection")
+
+    col1, col2, col3 = st.columns(3)
+
+    col1.metric(
+        "Total Events",
+        anomaly_report.get("total_events", 0)
+    )
+
+    col2.metric(
+        "Anomalies",
+        anomaly_report.get("anomaly_count", 0)
+    )
+
+    col3.metric(
+        "Anomaly Percentage",
+        f'{anomaly_report.get("anomaly_percentage", 0)}%'
+    )
+
+    anomaly_breakdown = anomaly_report.get(
+        "anomaly_breakdown", {}
+    )
+
+    if anomaly_breakdown:
+
+        st.write("Anomalies by Category")
+
+        anomaly_chart = pd.DataFrame(
+            list(anomaly_breakdown.items()),
+            columns=["Anomaly Type", "Count"]
+        )
+
+        st.bar_chart(
+            anomaly_chart.set_index("Anomaly Type")
+        )
+
+        st.dataframe(
+            anomaly_chart,
+            use_container_width=True
+        )
+
+    else:
+        st.success("No anomalies found.")
+
+    # Automatic event incidents
+
+    st.divider()
+    st.subheader("Automatic Event Incident Detection")
+
+    event_incidents = event_analysis.get(
+        "automatic_incidents", []
+    )
+
+    st.metric(
+        "New Event Incidents Created",
+        event_analysis.get("total_new_incidents", 0)
+    )
+
+    if event_incidents:
+
+        st.warning("Event anomalies generated automatic incidents.")
+
+        st.dataframe(
+            pd.DataFrame(event_incidents),
+            use_container_width=True
+        )
+
+    else:
+        st.info(
+            "No new incidents created. Existing open incidents may already cover these anomaly types."
+        )
+
+else:
+    st.info(
+        "Click 'Analyze IceStream Event Dataset' to load the real dataset results."
+    )
+
+
+# =====================================================
+# PART 3: ALL INCIDENTS
+# =====================================================
+
+st.divider()
+st.header("🚨 Part 3: Incident Monitoring")
 
 try:
     incident_response = requests.get(
         f"{API_URL}/monitoring/incidents",
-        timeout=5
+        timeout=10
     )
 
     incident_response.raise_for_status()
 
-    incidents = incident_response.json()["incidents"]
+    incidents = incident_response.json().get("incidents", [])
 
     open_incidents = [
         item for item in incidents
@@ -272,10 +473,14 @@ try:
     col3.metric("Resolved Incidents", len(resolved_incidents))
 
     if incidents:
+
+        st.subheader("All Recorded Incidents")
+
         st.dataframe(
             pd.DataFrame(incidents),
             use_container_width=True
         )
+
     else:
         st.success("No incidents recorded.")
 
@@ -283,5 +488,12 @@ except requests.RequestException:
     st.warning("Incident information is unavailable.")
 
 
+# =====================================================
+# FOOTER
+# =====================================================
+
 st.divider()
-st.caption("IceStream | Real-Time Lakehouse Observability")
+
+st.caption(
+    "IceStream | Real-Time Lakehouse Observability | Member 2"
+)
