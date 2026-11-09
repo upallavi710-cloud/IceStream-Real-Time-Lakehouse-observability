@@ -4,7 +4,9 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 # Existing transaction monitoring
@@ -20,12 +22,16 @@ from member.monitoring.incidents import (
     resolve_incident
 )
 
-# New IceStream event monitoring
+# IceStream event monitoring
 from member.monitoring.event_validation import validate_events
 from member.monitoring.event_metrics import calculate_event_metrics
 from member.monitoring.event_anomaly import detect_event_anomalies
 from member.monitoring.event_incidents import create_event_incidents
 
+
+# ---------------------------------------------------
+# FastAPI application
+# ---------------------------------------------------
 
 app = FastAPI(
     title="IceStream Monitoring API",
@@ -33,15 +39,40 @@ app = FastAPI(
     version="1.1.0"
 )
 
-# Locate the dataset relative to the project root
+
+# ---------------------------------------------------
+# CORS configuration for Next.js frontend
+# ---------------------------------------------------
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000"
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# ---------------------------------------------------
+# Dataset configuration
+# ---------------------------------------------------
+
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
 DATASET_PATH = (
     PROJECT_ROOT / "data" / "icestream_events_with_anomalies.csv"
 )
 
-# Store the most recent event analysis results
+# Store the latest event analysis
 latest_event_analysis = None
 
+
+# ---------------------------------------------------
+# Request models
+# ---------------------------------------------------
 
 class IncidentRequest(BaseModel):
     incident_type: str
@@ -49,8 +80,12 @@ class IncidentRequest(BaseModel):
     description: str
 
 
+# ---------------------------------------------------
+# Dataset loader
+# ---------------------------------------------------
+
 def load_event_dataset():
-    """Load the IceStream event CSV file."""
+    """Load the IceStream event CSV dataset."""
 
     if not DATASET_PATH.is_file():
         raise HTTPException(
@@ -60,12 +95,17 @@ def load_event_dataset():
 
     try:
         return pd.read_csv(DATASET_PATH)
+
     except (OSError, pd.errors.ParserError) as error:
         raise HTTPException(
             status_code=500,
             detail=f"Unable to load event dataset: {error}"
         )
 
+
+# ---------------------------------------------------
+# Basic API endpoints
+# ---------------------------------------------------
 
 @app.get("/")
 def home():
@@ -94,13 +134,15 @@ def monitoring_status():
 
 
 # ---------------------------------------------------
-# Existing transaction monitoring endpoints
+# Transaction monitoring endpoints
 # ---------------------------------------------------
 
 @app.post("/monitoring/data-quality")
 def data_quality_check(transactions: list[dict[str, Any]]):
+
     try:
         df = pd.DataFrame(transactions)
+
         valid, invalid, report = validate_transactions(df)
 
         valid_records = (
@@ -123,13 +165,18 @@ def data_quality_check(transactions: list[dict[str, Any]]):
         }
 
     except Exception as error:
-        raise HTTPException(status_code=500, detail=str(error))
+        raise HTTPException(
+            status_code=500,
+            detail=str(error)
+        )
 
 
 @app.post("/monitoring/metrics")
 def quality_metrics(transactions: list[dict[str, Any]]):
+
     try:
         df = pd.DataFrame(transactions)
+
         metrics = calculate_quality_metrics(df)
 
         return {
@@ -138,13 +185,18 @@ def quality_metrics(transactions: list[dict[str, Any]]):
         }
 
     except Exception as error:
-        raise HTTPException(status_code=500, detail=str(error))
+        raise HTTPException(
+            status_code=500,
+            detail=str(error)
+        )
 
 
 @app.post("/monitoring/anomalies")
 def anomaly_detection(transactions: list[dict[str, Any]]):
+
     try:
         df = pd.DataFrame(transactions)
+
         anomaly_report = detect_amount_anomalies(df)
 
         return {
@@ -153,16 +205,22 @@ def anomaly_detection(transactions: list[dict[str, Any]]):
         }
 
     except Exception as error:
-        raise HTTPException(status_code=500, detail=str(error))
+        raise HTTPException(
+            status_code=500,
+            detail=str(error)
+        )
 
 
 @app.post("/monitoring/analyze")
 def analyze_transactions(transactions: list[dict[str, Any]]):
+
     try:
         df = pd.DataFrame(transactions)
 
         valid, invalid, quality_report = validate_transactions(df)
+
         metrics = calculate_quality_metrics(df)
+
         anomaly_report = detect_amount_anomalies(df)
 
         quality_data = {
@@ -186,11 +244,14 @@ def analyze_transactions(transactions: list[dict[str, Any]]):
         }
 
     except Exception as error:
-        raise HTTPException(status_code=500, detail=str(error))
+        raise HTTPException(
+            status_code=500,
+            detail=str(error)
+        )
 
 
 # ---------------------------------------------------
-# New IceStream event monitoring endpoints
+# IceStream event monitoring endpoints
 # ---------------------------------------------------
 
 @app.post("/monitoring/events/analyze")
@@ -214,7 +275,7 @@ def analyze_event_dataset():
 
         created_incidents = create_event_incidents(anomaly_report)
 
-        # Keep the API response reasonably small
+        # Exclude raw anomaly records from the API response
         anomaly_summary = {
             key: value
             for key, value in anomaly_report.items()
@@ -273,11 +334,12 @@ def get_event_anomalies():
 
 
 # ---------------------------------------------------
-# Existing incident management endpoints
+# Incident management endpoints
 # ---------------------------------------------------
 
 @app.post("/monitoring/incidents")
 def create_incident(request: IncidentRequest):
+
     incident = log_incident(
         request.incident_type,
         request.severity,
@@ -292,6 +354,7 @@ def create_incident(request: IncidentRequest):
 
 @app.get("/monitoring/incidents")
 def list_incidents():
+
     incidents = get_all_incidents()
 
     return {
@@ -303,6 +366,7 @@ def list_incidents():
 
 @app.patch("/monitoring/incidents/{incident_id}/resolve")
 def resolve_incident_api(incident_id: int):
+
     incident = resolve_incident(incident_id)
 
     if incident is None:
