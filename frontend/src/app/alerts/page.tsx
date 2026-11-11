@@ -1,8 +1,16 @@
 
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+    useCallback,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+} from "react";
+
 import Sidebar from "../components/Sidebar";
+
 import {
     AlertTriangle,
     Bell,
@@ -12,6 +20,8 @@ import {
     Search,
     ShieldAlert,
     Activity,
+    Wifi,
+    WifiOff,
 } from "lucide-react";
 
 interface Incident {
@@ -30,53 +40,86 @@ interface IncidentResponse {
 }
 
 const API_URL = "http://127.0.0.1:8000";
+const REFRESH_INTERVAL = 10000;
 
 export default function AlertsPage() {
     const [incidents, setIncidents] = useState<Incident[]>([]);
     const [loading, setLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
+    const [connected, setConnected] = useState(false);
     const [error, setError] = useState("");
     const [search, setSearch] = useState("");
     const [severityFilter, setSeverityFilter] = useState("ALL");
     const [statusFilter, setStatusFilter] = useState("ALL");
     const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
-    const fetchIncidents = useCallback(async () => {
-    try {
-        setLoading(true);
-        setError("");
+    const requestInProgress = useRef(false);
+    const hasLoaded = useRef(false);
 
+  // Fetch incidents from FastAPI
+    const fetchIncidents = useCallback(async (manual = false) => {
+    if (requestInProgress.current) return;
+
+    requestInProgress.current = true;
+
+    if (!hasLoaded.current) {
+        setLoading(true);
+    }
+
+    if (manual) {
+        setRefreshing(true);
+    }
+
+    try {
         const response = await fetch(
         `${API_URL}/monitoring/incidents`,
-        { cache: "no-store" }
+        {
+            cache: "no-store",
+        }
         );
 
         if (!response.ok) {
-        throw new Error(`Backend returned ${response.status}`);
+        throw new Error(`Backend returned HTTP ${response.status}`);
         }
 
         const data: IncidentResponse = await response.json();
 
         if (!Array.isArray(data.incidents)) {
-        throw new Error("Unexpected incident response format");
+        throw new Error("Invalid incident response from backend");
         }
 
         setIncidents(data.incidents);
+        setConnected(true);
+        setError("");
         setLastUpdated(new Date());
+        hasLoaded.current = true;
     } catch (err) {
+        setConnected(false);
+
         setError(
         err instanceof Error
             ? err.message
-            : "Unable to load incidents"
+            : "Unable to connect to FastAPI"
         );
     } finally {
+        requestInProgress.current = false;
         setLoading(false);
+        setRefreshing(false);
     }
     }, []);
 
+  // Initial fetch and automatic refresh every 10 seconds
     useEffect(() => {
     fetchIncidents();
+
+    const interval = setInterval(() => {
+        fetchIncidents();
+    }, REFRESH_INTERVAL);
+
+    return () => clearInterval(interval);
     }, [fetchIncidents]);
 
+  // Incident statistics
     const total = incidents.length;
 
     const high = incidents.filter(
@@ -99,6 +142,7 @@ export default function AlertsPage() {
     (item) => item.status.toUpperCase() === "RESOLVED"
     ).length;
 
+  // Search and filters
     const filteredIncidents = useMemo(() => {
     return incidents.filter((incident) => {
         const matchesSearch =
@@ -118,7 +162,11 @@ export default function AlertsPage() {
         statusFilter === "ALL" ||
         incident.status.toUpperCase() === statusFilter;
 
-        return matchesSearch && matchesSeverity && matchesStatus;
+        return (
+        matchesSearch &&
+        matchesSeverity &&
+        matchesStatus
+        );
     });
     }, [incidents, search, severityFilter, statusFilter]);
 
@@ -160,64 +208,84 @@ export default function AlertsPage() {
 
           {/* Header */}
             <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
-            <div>
-                <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3">
                 <div className="rounded-xl bg-red-500/10 p-3">
-                    <Bell className="text-red-400" size={25} />
+                <Bell className="text-red-400" size={25} />
                 </div>
+
                 <div>
-                    <h1 className="text-3xl font-bold">
+                <h1 className="text-3xl font-bold">
                     Live Alerts
-                    </h1>
-                    <p className="mt-1 text-sm text-slate-400">
+                </h1>
+                <p className="mt-1 text-sm text-slate-400">
                     Monitor incidents detected by IceStream
-                    </p>
-                </div>
+                </p>
                 </div>
             </div>
 
             <button
-                onClick={fetchIncidents}
-                disabled={loading}
+                onClick={() => fetchIncidents(true)}
+                disabled={refreshing || loading}
                 className="flex items-center justify-center gap-2 rounded-lg bg-teal-500 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-teal-400 disabled:opacity-50"
             >
                 <RefreshCw
                 size={17}
-                className={loading ? "animate-spin" : ""}
+                className={refreshing ? "animate-spin" : ""}
                 />
-                Refresh Alerts
+                {refreshing ? "Refreshing..." : "Refresh Alerts"}
             </button>
             </div>
 
-          {/* Connection and update status */}
+          {/* Connection status */}
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-800 bg-[#172638] p-4">
             <div className="flex items-center gap-2">
-                <span className="h-2.5 w-2.5 rounded-full bg-emerald-400" />
-                <span className="text-sm text-slate-300">
-                Incident API connected when data loads successfully
-                </span>
-            </div>
-            <span className="text-xs text-slate-500">
-                {lastUpdated
-                ? `Last updated: ${lastUpdated.toLocaleTimeString()}`
-                : "Waiting for data"}
-            </span>
+                {connected ? (
+                <>
+                    <Wifi size={19} className="text-emerald-400" />
+                    <span className="text-sm text-emerald-400">
+                    FastAPI Connected
+                    </span>
+                </>
+                ) : (
+                <>
+                    <WifiOff size={19} className="text-red-400" />
+                    <span className="text-sm text-red-400">
+                    FastAPI Disconnected
+                    </span>
+                </>
+                )}
             </div>
 
+            <div className="text-xs text-slate-400">
+                {lastUpdated
+                ? `Last successful update: ${lastUpdated.toLocaleTimeString()}`
+                : "Waiting for first successful update"}
+            </div>
+            </div>
+
+          {/* Automatic refresh information */}
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-teal-500/20 bg-teal-500/5 p-3 text-sm text-teal-300">
+            <RefreshCw size={16} />
+            Automatic refresh is enabled – every 10 seconds
+            </div>
+
+          {/* Error message */}
             {error && (
             <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-300">
                 <div className="flex items-center gap-2 font-semibold">
                 <AlertTriangle size={18} />
-                Unable to load alerts
+                Unable to refresh alerts
                 </div>
+
                 <p className="mt-2">{error}</p>
+
                 <p className="mt-1 text-xs text-slate-400">
-                Check that the FastAPI backend is running at {API_URL}.
+                Check whether FastAPI is running at {API_URL}.
                 </p>
             </div>
             )}
 
-          {/* Summary cards */}
+          {/* Severity cards */}
             <section className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
             <Metric
                 title="Total Incidents"
@@ -226,6 +294,7 @@ export default function AlertsPage() {
                 icon={<Activity size={21} />}
                 color="text-teal-400"
             />
+
             <Metric
                 title="High Severity"
                 value={high}
@@ -233,6 +302,7 @@ export default function AlertsPage() {
                 icon={<ShieldAlert size={21} />}
                 color="text-red-400"
             />
+
             <Metric
                 title="Medium Severity"
                 value={medium}
@@ -240,6 +310,7 @@ export default function AlertsPage() {
                 icon={<AlertTriangle size={21} />}
                 color="text-amber-400"
             />
+
             <Metric
                 title="Low Severity"
                 value={low}
@@ -254,24 +325,37 @@ export default function AlertsPage() {
             <div className="rounded-xl border border-slate-800 bg-[#172638] p-5">
                 <div className="flex items-center gap-3">
                 <Clock className="text-red-400" size={22} />
-                <p className="text-sm text-slate-400">Open Incidents</p>
+                <p className="text-sm text-slate-400">
+                    Open Incidents
+                </p>
                 </div>
-                <h2 className="mt-4 text-3xl font-bold">{open}</h2>
+
+                <h2 className="mt-4 text-3xl font-bold">
+                {open}
+                </h2>
             </div>
 
             <div className="rounded-xl border border-slate-800 bg-[#172638] p-5">
                 <div className="flex items-center gap-3">
                 <CheckCircle2 className="text-emerald-400" size={22} />
-                <p className="text-sm text-slate-400">Resolved Incidents</p>
+                <p className="text-sm text-slate-400">
+                    Resolved Incidents
+                </p>
                 </div>
-                <h2 className="mt-4 text-3xl font-bold">{resolved}</h2>
+
+                <h2 className="mt-4 text-3xl font-bold">
+                {resolved}
+                </h2>
             </div>
             </section>
 
-          {/* Filters */}
+          {/* Search and filters */}
             <section className="rounded-xl border border-slate-800 bg-[#172638] p-5">
             <div className="mb-5">
-                <h2 className="text-lg font-semibold">Incident History</h2>
+                <h2 className="text-lg font-semibold">
+                Incident History
+                </h2>
+
                 <p className="mt-1 text-sm text-slate-400">
                 Search and filter incidents from the backend
                 </p>
@@ -283,6 +367,7 @@ export default function AlertsPage() {
                     size={18}
                     className="absolute left-3 top-3 text-slate-500"
                 />
+
                 <input
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
@@ -320,6 +405,7 @@ export default function AlertsPage() {
                 <h2 className="text-lg font-semibold">
                 Detected Incidents
                 </h2>
+
                 <span className="text-sm text-slate-400">
                 Showing {filteredIncidents.length} of {total}
                 </span>
@@ -356,22 +442,31 @@ export default function AlertsPage() {
                         <td className="px-5 py-4 font-semibold text-teal-400">
                             #{incident.incident_id}
                         </td>
+
                         <td className="px-5 py-4 font-medium text-slate-200">
                             {incident.incident_type}
                         </td>
+
                         <td className="max-w-sm px-5 py-4 text-slate-400">
                             {incident.description}
                         </td>
+
                         <td className="px-5 py-4">
-                            <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${severityStyle(incident.severity)}`}>
+                            <span
+                            className={`rounded-full border px-3 py-1 text-xs font-semibold ${severityStyle(incident.severity)}`}
+                            >
                             {incident.severity}
                             </span>
                         </td>
+
                         <td className="px-5 py-4 text-xs text-slate-400">
                             {formatDate(incident.timestamp)}
                         </td>
+
                         <td className="px-5 py-4">
-                            <span className={`rounded-full px-3 py-1 text-xs font-semibold ${statusStyle(incident.status)}`}>
+                            <span
+                            className={`rounded-full px-3 py-1 text-xs font-semibold ${statusStyle(incident.status)}`}
+                            >
                             {incident.status}
                             </span>
                         </td>
@@ -384,7 +479,7 @@ export default function AlertsPage() {
             </section>
 
             <p className="text-center text-xs text-slate-500">
-            IceStream Live Alerts · Data retrieved from FastAPI
+            IceStream Live Alerts · FastAPI monitoring
             </p>
         </div>
         </main>
@@ -409,12 +504,17 @@ function Metric({
     <div className="rounded-xl border border-slate-800 bg-[#172638] p-5 transition hover:-translate-y-1 hover:border-teal-500/40">
         <div className="flex items-center justify-between">
         <p className="text-sm text-slate-400">{title}</p>
+
         <div className={`rounded-lg bg-slate-800 p-2 ${color}`}>
             {icon}
         </div>
         </div>
+
         <h2 className="mt-5 text-3xl font-bold">{value}</h2>
-        <p className="mt-2 text-xs text-slate-500">{subtitle}</p>
+
+        <p className="mt-2 text-xs text-slate-500">
+        {subtitle}
+        </p>
     </div>
     );
 }
