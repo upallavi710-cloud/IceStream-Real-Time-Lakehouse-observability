@@ -28,6 +28,9 @@ from member.monitoring.event_metrics import calculate_event_metrics
 from member.monitoring.event_anomaly import detect_event_anomalies
 from member.monitoring.event_incidents import create_event_incidents
 
+# Apache Iceberg Time Travel API
+from member.iceberg.iceberg_api import router as iceberg_router
+
 
 # ---------------------------------------------------
 # FastAPI application
@@ -36,7 +39,7 @@ from member.monitoring.event_incidents import create_event_incidents
 app = FastAPI(
     title="IceStream Monitoring API",
     description="Real-time lakehouse data quality and pipeline monitoring",
-    version="1.1.0"
+    version="1.2.0"
 )
 
 
@@ -56,6 +59,10 @@ app.add_middleware(
 )
 
 
+# Register Apache Iceberg router
+app.include_router(iceberg_router)
+
+
 # ---------------------------------------------------
 # Dataset configuration
 # ---------------------------------------------------
@@ -66,7 +73,6 @@ DATASET_PATH = (
     PROJECT_ROOT / "data" / "icestream_events_with_anomalies.csv"
 )
 
-# Store the latest event analysis
 latest_event_analysis = None
 
 
@@ -275,7 +281,6 @@ def analyze_event_dataset():
 
         created_incidents = create_event_incidents(anomaly_report)
 
-        # Exclude raw anomaly records from the API response
         anomaly_summary = {
             key: value
             for key, value in anomaly_report.items()
@@ -303,7 +308,6 @@ def analyze_event_dataset():
 
 @app.get("/monitoring/events/metrics")
 def get_event_metrics():
-    """Return metrics from the latest event analysis."""
 
     if latest_event_analysis is None:
         raise HTTPException(
@@ -319,7 +323,6 @@ def get_event_metrics():
 
 @app.get("/monitoring/events/anomalies")
 def get_event_anomalies():
-    """Return anomaly summary from the latest analysis."""
 
     if latest_event_analysis is None:
         raise HTTPException(
@@ -379,4 +382,82 @@ def resolve_incident_api(incident_id: int):
         "status": "success",
         "message": "Incident resolved successfully",
         "incident": incident
+    }
+
+
+# ---------------------------------------------------
+# Data Explorer endpoint
+# ---------------------------------------------------
+
+@app.get("/monitoring/events/records")
+def get_event_records(
+    limit: int = 100,
+    offset: int = 0,
+    search: str = "",
+    event_type: str = "",
+    status: str = "",
+    anomaly: str = ""
+):
+    """Return searchable and filterable event dataset records."""
+
+    if limit < 1 or limit > 500:
+        raise HTTPException(
+            status_code=400,
+            detail="Limit must be between 1 and 500"
+        )
+
+    if offset < 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Offset cannot be negative"
+        )
+
+    df = load_event_dataset()
+
+    if event_type:
+        df = df[
+            df["event_type"].astype(str).str.lower()
+            == event_type.lower()
+        ]
+
+    if status:
+        df = df[
+            df["status"].astype(str).str.lower()
+            == status.lower()
+        ]
+
+    if anomaly.lower() == "yes":
+        df = df[df["is_injected_anomaly"] == True]
+    elif anomaly.lower() == "no":
+        df = df[df["is_injected_anomaly"] == False]
+
+    if search:
+        search_mask = df.astype(str).apply(
+            lambda column: column.str.contains(
+                search,
+                case=False,
+                na=False,
+                regex=False
+            )
+        ).any(axis=1)
+
+        df = df[search_mask]
+
+    total = len(df)
+
+    page_df = df.iloc[offset:offset + limit]
+
+    records = (
+        page_df.astype(object)
+        .where(pd.notna(page_df), None)
+        .to_dict(orient="records")
+    )
+
+    return {
+        "status": "success",
+        "total_records": total,
+        "limit": limit,
+        "offset": offset,
+        "columns": list(df.columns),
+        "records": records
     }
